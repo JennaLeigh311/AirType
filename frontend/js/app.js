@@ -310,14 +310,18 @@ class App {
     async sendPrediction(features) {
         const startTime = performance.now();
         
+        console.log('sendPrediction called with', features.length, 'feature points');
+        
         // Try WebSocket first
         if (wsClient.isSocketConnected()) {
+            console.log('Using WebSocket for prediction');
             wsClient.requestPrediction(features);
         } else {
             // Fallback to REST API
             try {
-                console.log('Sending prediction via REST API');
+                console.log('Sending prediction via REST API to', Config.API_BASE_URL + '/predictions/predict');
                 const result = await apiClient.predict(features);
+                console.log('Prediction result:', result);
                 const latency = performance.now() - startTime;
                 this.displayPrediction(
                     result.prediction, 
@@ -336,7 +340,9 @@ class App {
      * Request prediction for current drawing
      */
     async requestPrediction() {
+        console.log('requestPrediction called');
         const lastStroke = canvasRenderer.getLastStroke();
+        console.log('Last stroke:', lastStroke ? lastStroke.length + ' points' : 'none');
         
         if (!lastStroke || lastStroke.length < Config.FEATURES.MIN_POINTS) {
             this.showToast('Draw a character first', 'info');
@@ -344,6 +350,7 @@ class App {
         }
         
         const features = canvasRenderer.extractStrokeFeatures(lastStroke);
+        console.log('Extracted features:', features ? features.length + ' rows' : 'none');
         if (features) {
             this.sendPrediction(features);
         }

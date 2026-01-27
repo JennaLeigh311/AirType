@@ -290,14 +290,27 @@ class ApiClient {
      * Check API health
      */
     async checkHealth() {
-        return this.get('/health');
+        // Health endpoint is at root, not under /api
+        const url = this.baseUrl.replace('/api', '') + '/health';
+        try {
+            const response = await fetch(url);
+            return await response.json();
+        } catch (error) {
+            throw new ApiError(error.message || 'Health check failed', 0);
+        }
     }
     
     /**
      * Get detailed health status
      */
     async getDetailedHealth() {
-        return this.get('/health/detailed');
+        const url = this.baseUrl.replace('/api', '') + '/health/detailed';
+        try {
+            const response = await fetch(url);
+            return await response.json();
+        } catch (error) {
+            throw new ApiError(error.message || 'Health check failed', 0);
+        }
     }
 }
 

@@ -92,11 +92,13 @@ def create_app(config_name: Optional[str] = None) -> Flask:
     jwt.init_app(app)
     CORS(app, origins=app.config.get("CORS_ORIGINS", "*").split(","))
     limiter.init_app(app)
+    
+    # SocketIO - don't use Redis message queue in development to avoid eventlet issues
     socketio.init_app(
         app,
         cors_allowed_origins="*",
-        async_mode="eventlet",
-        message_queue=app.config.get("REDIS_URL"),
+        async_mode="threading",  # Use threading instead of eventlet for simplicity
+        # message_queue disabled for local development
     )
     
     # Register blueprints
