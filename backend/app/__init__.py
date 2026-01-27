@@ -112,11 +112,12 @@ def create_app(config_name: Optional[str] = None) -> Flask:
     app.register_blueprint(users_bp, url_prefix="/api/users")
     app.register_blueprint(health_bp, url_prefix="")
     
-    # Add Prometheus metrics endpoint
-    app.wsgi_app = DispatcherMiddleware(
-        app.wsgi_app,
-        {"/metrics": make_wsgi_app()},
-    )
+    # Prometheus metrics endpoint disabled for local development
+    # (causes issues with SocketIO and threading mode)
+    # app.wsgi_app = DispatcherMiddleware(
+    #     app.wsgi_app,
+    #     {"/metrics": make_wsgi_app()},
+    # )
     
     # Request hooks for metrics and logging
     @app.before_request
