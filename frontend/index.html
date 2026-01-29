@@ -116,6 +116,36 @@
                         <p class="empty-history">No predictions yet</p>
                     </div>
                 </div>
+                
+                <!-- Training Panel -->
+                <div class="training-panel">
+                    <h3>🎯 Training Mode</h3>
+                    <div class="training-stats-panel">
+                        <div class="stat-item">
+                            <span class="stat-value" id="total-samples">0</span>
+                            <span class="stat-label">Samples</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-value" id="overall-accuracy">-</span>
+                            <span class="stat-label">Accuracy</span>
+                        </div>
+                    </div>
+                    <div id="practice-suggestion" class="practice-suggestion hidden">
+                        <p>Practice these characters:</p>
+                        <div id="suggested-chars" class="suggested-chars"></div>
+                    </div>
+                    <div class="training-actions">
+                        <button id="get-suggestions-btn" class="btn btn-outline">
+                            Get Practice Suggestions
+                        </button>
+                        <button id="train-model-btn" class="btn btn-primary" disabled>
+                            Train Model (50+ samples)
+                        </button>
+                    </div>
+                    <div id="training-status" class="training-status hidden">
+                        <p id="training-status-text">Training...</p>
+                    </div>
+                </div>
             </section>
         </main>
 
@@ -176,6 +206,63 @@
 
         <!-- Toast Notifications -->
         <div id="toast-container" class="toast-container"></div>
+
+        <!-- Correction Modal -->
+        <div id="correction-modal" class="modal hidden">
+            <div class="modal-content correction-modal-content">
+                <button class="modal-close" id="close-correction">&times;</button>
+                <h2>Correct Prediction</h2>
+                <div class="correction-info">
+                    <p>Model predicted: <strong id="correction-predicted"></strong></p>
+                    <p>Confidence: <strong id="correction-confidence"></strong></p>
+                </div>
+                
+                <div class="correction-question">
+                    <p>What did you actually write?</p>
+                </div>
+                
+                <!-- Character Grid -->
+                <div class="character-grid">
+                    <div class="char-section">
+                        <h4>Lowercase (a-z)</h4>
+                        <div id="lowercase-grid" class="char-buttons"></div>
+                    </div>
+                    <div class="char-section">
+                        <h4>Uppercase (A-Z)</h4>
+                        <div id="uppercase-grid" class="char-buttons"></div>
+                    </div>
+                    <div class="char-section">
+                        <h4>Numbers (0-9)</h4>
+                        <div id="numbers-grid" class="char-buttons"></div>
+                    </div>
+                </div>
+                
+                <!-- Manual Input -->
+                <div class="manual-input">
+                    <label for="manual-char-input">Or type it:</label>
+                    <input type="text" id="manual-char-input" maxlength="1" 
+                           pattern="[a-zA-Z0-9]" placeholder="Type character">
+                </div>
+                
+                <!-- Actions -->
+                <div class="correction-actions">
+                    <button id="confirm-correct" class="btn btn-success">
+                        ✓ Prediction was Correct
+                    </button>
+                    <button id="submit-correction" class="btn btn-primary" disabled>
+                        Submit Correction
+                    </button>
+                    <button id="skip-correction" class="btn btn-outline">
+                        Skip
+                    </button>
+                </div>
+                
+                <!-- Training Stats -->
+                <div class="training-stats">
+                    <small>You've contributed <span id="contribution-count">0</span> corrections</small>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Scripts - Using ES Modules -->

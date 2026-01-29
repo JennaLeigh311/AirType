@@ -119,12 +119,17 @@ class CanvasRenderer {
         
         this.isDrawing = false;
         
+        console.log('handlePointerEnd: currentStroke has', this.currentStroke.length, 'points, MIN_POINTS =', Config.FEATURES.MIN_POINTS);
+        
         if (this.currentStroke.length >= Config.FEATURES.MIN_POINTS) {
             this.allStrokes.push([...this.currentStroke]);
+            console.log('Stroke saved! Total strokes:', this.allStrokes.length);
             
             if (this.onStrokeCompleteCallback) {
                 this.onStrokeCompleteCallback(this.currentStroke);
             }
+        } else {
+            console.log('Stroke too short, not saved. Need at least', Config.FEATURES.MIN_POINTS, 'points');
         }
         
         this.currentStroke = [];
@@ -284,6 +289,7 @@ class CanvasRenderer {
      * Get all strokes
      */
     getStrokes() {
+        console.log('getStrokes called, returning', this.allStrokes.length, 'strokes');
         return [...this.allStrokes];
     }
     
@@ -291,14 +297,18 @@ class CanvasRenderer {
      * Get last completed stroke
      */
     getLastStroke() {
-        return this.allStrokes.length > 0 ? this.allStrokes[this.allStrokes.length - 1] : null;
+        const stroke = this.allStrokes.length > 0 ? this.allStrokes[this.allStrokes.length - 1] : null;
+        console.log('getLastStroke called, returning', stroke ? stroke.length + ' points' : 'null');
+        return stroke;
     }
     
     /**
      * Get current stroke being drawn
      */
     getCurrentStroke() {
-        return this.isDrawing ? [...this.currentStroke] : null;
+        const stroke = this.isDrawing ? [...this.currentStroke] : null;
+        console.log('getCurrentStroke called, isDrawing:', this.isDrawing, ', returning', stroke ? stroke.length + ' points' : 'null');
+        return stroke;
     }
     
     /**
@@ -361,7 +371,14 @@ class CanvasRenderer {
      * Extract features from stroke for prediction
      */
     extractStrokeFeatures(stroke) {
-        if (stroke.length < 2) return null;
+        console.log('=== extractStrokeFeatures START ===');
+        console.log('Input stroke:', stroke);
+        console.log('Stroke length:', stroke ? stroke.length : 'null/undefined');
+        
+        if (!stroke || stroke.length < 2) {
+            console.log('ERROR: Stroke is null or too short (< 2 points)');
+            return null;
+        }
         
         const features = [];
         
@@ -430,7 +447,7 @@ class CanvasRenderer {
                 curvature = Math.atan2(cross, dot);
             }
             
-            features.push([
+            const featureRow = [
                 normalizedX,
                 normalizedY,
                 velocityX,
@@ -438,9 +455,16 @@ class CanvasRenderer {
                 accelerationX,
                 accelerationY,
                 curvature
-            ]);
+            ];
+            features.push(featureRow);
+            
+            if (i === 0) {
+                console.log('First feature row:', featureRow);
+            }
         }
         
+        console.log('=== extractStrokeFeatures END ===');
+        console.log('Total feature rows:', features.length);
         return features;
     }
     

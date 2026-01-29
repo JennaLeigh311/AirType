@@ -237,7 +237,14 @@ class ApiClient {
     async predict(features, topK = 5) {
         const url = `${this.baseUrl}/predictions/predict`;
         
+        console.log('=== API CLIENT: predict() START ===');
+        console.log('URL:', url);
+        console.log('Features count:', features ? features.length : 'null');
+        console.log('Features sample (first 3):', features ? features.slice(0, 3) : 'null');
+        console.log('Request body:', JSON.stringify({ features, top_k: topK }).substring(0, 500) + '...');
+        
         try {
+            console.log('Sending fetch request...');
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -246,14 +253,22 @@ class ApiClient {
                 body: JSON.stringify({ features, top_k: topK })
             });
             
+            console.log('Response status:', response.status);
+            console.log('Response ok:', response.ok);
+            
             const data = await response.json();
+            console.log('Response data:', data);
             
             if (!response.ok) {
+                console.error('API error response:', data);
                 throw new ApiError(data.error || 'Prediction failed', response.status, data);
             }
             
+            console.log('=== API CLIENT: predict() SUCCESS ===');
             return data;
         } catch (error) {
+            console.error('=== API CLIENT: predict() FAILED ===');
+            console.error('Error:', error);
             if (error instanceof ApiError) {
                 throw error;
             }

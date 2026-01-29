@@ -57,8 +57,8 @@ class ScaledDotProductAttention(nn.Module):
         
         # Apply mask if provided
         if mask is not None:
-            # Expand mask for broadcasting: (batch, 1, seq_len)
-            mask = mask.unsqueeze(1)
+            # Mask should already be expanded for broadcasting
+            # Shape: (batch, 1, 1, seq_len) or (batch, 1, seq_len)
             scores = scores.masked_fill(mask == 0, float("-inf"))
         
         # Compute attention weights
@@ -140,8 +140,13 @@ class MultiHeadAttention(nn.Module):
         key = key.transpose(1, 2)
         value = value.transpose(1, 2)
         
+        # Expand mask for multi-head: (batch, 1, 1, seq_len) for broadcasting
+        expanded_mask = None
+        if mask is not None:
+            expanded_mask = mask.unsqueeze(1).unsqueeze(2)  # (batch, 1, 1, seq_len)
+        
         # Compute attention for each head
-        attn_output, attn_weights = self.attention(query, key, value, mask)
+        attn_output, attn_weights = self.attention(query, key, value, expanded_mask)
         
         # Transpose and reshape back: (batch, seq_len, dim)
         attn_output = attn_output.transpose(1, 2).contiguous()

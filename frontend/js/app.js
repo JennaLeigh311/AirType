@@ -20,6 +20,15 @@ class App {
         this.predictionHistory = [];
         this.currentUser = null;
         
+        // Correction state
+        this.currentPredictionData = null;
+        this.selectedCorrection = null;
+        this.contributionTotal = 0;
+        
+        // Training state
+        this.trainingStats = null;
+        this.isTraining = false;
+        
         // Debounce timer for predictions
         this.predictionDebounce = null;
     }
@@ -38,11 +47,23 @@ class App {
             // Initialize modules
             await this.initializeModules();
             
+            // Initialize correction grids
+            this.initCorrectionGrids();
+            
+            // Load contribution count
+            this.contributionTotal = parseInt(localStorage.getItem('airtype_contribution_count') || '0');
+            if (this.elements.contributionCount) {
+                this.elements.contributionCount.textContent = this.contributionTotal;
+            }
+            
             // Check authentication
             this.checkAuth();
             
             // Check API health
             this.checkApiHealth();
+            
+            // Load training stats
+            this.loadTrainingStats();
             
             this.isInitialized = true;
             console.log('AirType initialized successfully');
@@ -98,7 +119,31 @@ class App {
             registerError: document.getElementById('register-error'),
             
             // Toast
-            toastContainer: document.getElementById('toast-container')
+            toastContainer: document.getElementById('toast-container'),
+            
+            // Correction Modal
+            correctionModal: document.getElementById('correction-modal'),
+            closeCorrectionBtn: document.getElementById('close-correction'),
+            correctionPredicted: document.getElementById('correction-predicted'),
+            correctionConfidence: document.getElementById('correction-confidence'),
+            lowercaseGrid: document.getElementById('lowercase-grid'),
+            uppercaseGrid: document.getElementById('uppercase-grid'),
+            numbersGrid: document.getElementById('numbers-grid'),
+            manualCharInput: document.getElementById('manual-char-input'),
+            confirmCorrectBtn: document.getElementById('confirm-correct'),
+            submitCorrectionBtn: document.getElementById('submit-correction'),
+            skipCorrectionBtn: document.getElementById('skip-correction'),
+            contributionCount: document.getElementById('contribution-count'),
+            
+            // Training Panel
+            totalSamples: document.getElementById('total-samples'),
+            overallAccuracy: document.getElementById('overall-accuracy'),
+            practiceSuggestion: document.getElementById('practice-suggestion'),
+            suggestedChars: document.getElementById('suggested-chars'),
+            getSuggestionsBtn: document.getElementById('get-suggestions-btn'),
+            trainModelBtn: document.getElementById('train-model-btn'),
+            trainingStatus: document.getElementById('training-status'),
+            trainingStatusText: document.getElementById('training-status-text')
         };
     }
     
@@ -131,6 +176,20 @@ class App {
         this.elements.loginForm?.addEventListener('submit', (e) => this.handleLogin(e));
         this.elements.registerForm?.addEventListener('submit', (e) => this.handleRegister(e));
         
+        // Correction modal controls
+        this.elements.closeCorrectionBtn?.addEventListener('click', () => this.hideCorrectionModal());
+        this.elements.correctionModal?.addEventListener('click', (e) => {
+            if (e.target === this.elements.correctionModal) this.hideCorrectionModal();
+        });
+        this.elements.confirmCorrectBtn?.addEventListener('click', () => this.confirmCorrect());
+        this.elements.submitCorrectionBtn?.addEventListener('click', () => this.submitCorrection());
+        this.elements.skipCorrectionBtn?.addEventListener('click', () => this.hideCorrectionModal());
+        this.elements.manualCharInput?.addEventListener('input', (e) => this.handleManualInput(e));
+        
+        // Training panel controls
+        this.elements.getSuggestionsBtn?.addEventListener('click', () => this.loadPracticeSuggestions());
+        this.elements.trainModelBtn?.addEventListener('click', () => this.trainModel());
+        
         // Global events
         window.addEventListener('auth:unauthorized', () => this.handleUnauthorized());
         
@@ -148,6 +207,15 @@ class App {
             canvasRenderer.onStrokeComplete((stroke) => this.onStrokeComplete(stroke));
         } else {
             console.warn('Drawing canvas not found');
+        }
+        
+        // Initialize correction modal character grids
+        this.initCorrectionGrids();
+        
+        // Load contribution count from localStorage
+        this.contributionTotal = parseInt(localStorage.getItem('airtype_contribution_count') || '0');
+        if (this.elements.contributionCount) {
+            this.elements.contributionCount.textContent = this.contributionTotal;
         }
         
         // Initialize video stream
@@ -310,29 +378,30 @@ class App {
     async sendPrediction(features) {
         const startTime = performance.now();
         
-        console.log('sendPrediction called with', features.length, 'feature points');
+        console.log('=== SENDING PREDICTION ===');
+        console.log('Features count:', features.length, 'rows');
         
-        // Try WebSocket first
-        if (wsClient.isSocketConnected()) {
-            console.log('Using WebSocket for prediction');
-            wsClient.requestPrediction(features);
-        } else {
-            // Fallback to REST API
-            try {
-                console.log('Sending prediction via REST API to', Config.API_BASE_URL + '/predictions/predict');
-                const result = await apiClient.predict(features);
-                console.log('Prediction result:', result);
-                const latency = performance.now() - startTime;
-                this.displayPrediction(
-                    result.prediction, 
-                    result.confidence, 
-                    result.alternatives, 
-                    result.inference_time || latency
-                );
-            } catch (error) {
-                console.error('Prediction failed:', error);
-                this.showToast('Prediction failed: ' + error.message, 'error');
-            }
+        // Use REST API for manual predictions (WebSocket can be used later for real-time)
+        try {
+            console.log('Sending prediction via REST API to', Config.API_BASE_URL + '/predictions/predict');
+            const result = await apiClient.predict(features);
+            console.log('Prediction result received:', result);
+            const latency = performance.now() - startTime;
+            
+            // Display prediction and show correction modal
+            this.displayPrediction(
+                result.prediction, 
+                result.confidence, 
+                result.alternatives, 
+                result.inference_time || latency,
+                features, // Pass features for feedback
+                result.model_version
+            );
+            console.log('Prediction displayed successfully');
+        } catch (error) {
+            console.error('=== PREDICTION FAILED ===');
+            console.error('Error:', error);
+            this.showToast('Prediction failed: ' + error.message, 'error');
         }
     }
     
@@ -340,19 +409,52 @@ class App {
      * Request prediction for current drawing
      */
     async requestPrediction() {
-        console.log('requestPrediction called');
-        const lastStroke = canvasRenderer.getLastStroke();
-        console.log('Last stroke:', lastStroke ? lastStroke.length + ' points' : 'none');
+        console.log('\n========================================');
+        console.log('=== REQUEST PREDICTION BUTTON CLICKED ==');
+        console.log('========================================');
         
-        if (!lastStroke || lastStroke.length < Config.FEATURES.MIN_POINTS) {
-            this.showToast('Draw a character first', 'info');
+        // Try to get the last completed stroke first
+        let stroke = canvasRenderer.getLastStroke();
+        console.log('Step 1 - getLastStroke():', stroke ? `Got ${stroke.length} points` : 'EMPTY/NULL');
+        
+        // If no completed stroke, try current stroke being drawn
+        if (!stroke || stroke.length < Config.FEATURES.MIN_POINTS) {
+            console.log('Step 1 failed - trying getCurrentStroke()...');
+            stroke = canvasRenderer.getCurrentStroke();
+            console.log('Step 2 - getCurrentStroke():', stroke ? `Got ${stroke.length} points` : 'EMPTY/NULL');
+        }
+        
+        // Also check all strokes
+        const allStrokes = canvasRenderer.getStrokes();
+        console.log('Step 3 - All strokes in memory:', allStrokes.length);
+        if (allStrokes.length > 0) {
+            console.log('Strokes details:', allStrokes.map((s, i) => `Stroke ${i}: ${s.length} points`));
+        }
+        
+        // If still no stroke, try the last from allStrokes directly
+        if ((!stroke || stroke.length < Config.FEATURES.MIN_POINTS) && allStrokes.length > 0) {
+            stroke = allStrokes[allStrokes.length - 1];
+            console.log('Step 4 - Using last stroke from allStrokes:', stroke.length, 'points');
+        }
+        
+        if (!stroke || stroke.length < Config.FEATURES.MIN_POINTS) {
+            console.log('FAILED: No valid stroke found. MIN_POINTS required:', Config.FEATURES.MIN_POINTS);
+            this.showToast('Draw a character first (need at least ' + Config.FEATURES.MIN_POINTS + ' points)', 'info');
             return;
         }
         
-        const features = canvasRenderer.extractStrokeFeatures(lastStroke);
-        console.log('Extracted features:', features ? features.length + ' rows' : 'none');
+        console.log('Step 5 - Valid stroke found with', stroke.length, 'points');
+        console.log('Stroke data sample (first 3 points):', stroke.slice(0, 3));
+        
+        const features = canvasRenderer.extractStrokeFeatures(stroke);
+        console.log('Step 6 - Extracted features:', features ? `${features.length} rows` : 'NULL - extraction failed!');
+        
         if (features) {
-            this.sendPrediction(features);
+            console.log('Step 7 - Sending prediction request...');
+            await this.sendPrediction(features);
+        } else {
+            console.error('Feature extraction returned null!');
+            this.showToast('Failed to extract features from stroke', 'error');
         }
     }
     
@@ -367,7 +469,7 @@ class App {
     /**
      * Display prediction result
      */
-    displayPrediction(prediction, confidence, alternatives = [], inferenceTime = 0) {
+    displayPrediction(prediction, confidence, alternatives = [], inferenceTime = 0, features = null, modelVersion = '1.0.0') {
         // Hide no prediction message
         this.elements.noPrediction?.classList.add('hidden');
         this.elements.predictionDisplay?.classList.remove('hidden');
@@ -406,6 +508,18 @@ class App {
         
         // Add to history
         this.addToHistory(prediction, confidence);
+        
+        // Show correction modal if features are provided
+        if (features) {
+            this.showCorrectionModal({
+                prediction,
+                confidence,
+                alternatives,
+                inference_time: inferenceTime,
+                features,
+                model_version: modelVersion
+            });
+        }
     }
     
     /**
@@ -653,6 +767,357 @@ class App {
             toast.style.animation = 'slideIn var(--transition-normal) reverse';
             setTimeout(() => toast.remove(), 250);
         }, 3000);
+    }
+    
+    /**
+     * Initialize correction character grids
+     */
+    initCorrectionGrids() {
+        // Lowercase letters (a-z)
+        if (this.elements.lowercaseGrid) {
+            for (let i = 97; i <= 122; i++) {
+                const char = String.fromCharCode(i);
+                const btn = document.createElement('button');
+                btn.className = 'char-btn';
+                btn.textContent = char;
+                btn.addEventListener('click', () => this.selectCharacter(char));
+                this.elements.lowercaseGrid.appendChild(btn);
+            }
+        }
+        
+        // Uppercase letters (A-Z)
+        if (this.elements.uppercaseGrid) {
+            for (let i = 65; i <= 90; i++) {
+                const char = String.fromCharCode(i);
+                const btn = document.createElement('button');
+                btn.className = 'char-btn';
+                btn.textContent = char;
+                btn.addEventListener('click', () => this.selectCharacter(char));
+                this.elements.uppercaseGrid.appendChild(btn);
+            }
+        }
+        
+        // Numbers (0-9)
+        if (this.elements.numbersGrid) {
+            for (let i = 0; i <= 9; i++) {
+                const char = i.toString();
+                const btn = document.createElement('button');
+                btn.className = 'char-btn';
+                btn.textContent = char;
+                btn.addEventListener('click', () => this.selectCharacter(char));
+                this.elements.numbersGrid.appendChild(btn);
+            }
+        }
+    }
+    
+    /**
+     * Show correction modal after prediction
+     */
+    showCorrectionModal(predictionData) {
+        this.currentPredictionData = predictionData;
+        this.selectedCorrection = null;
+        
+        // Update modal content
+        if (this.elements.correctionPredicted) {
+            this.elements.correctionPredicted.textContent = predictionData.prediction;
+        }
+        if (this.elements.correctionConfidence) {
+            this.elements.correctionConfidence.textContent = `${Math.round(predictionData.confidence * 100)}%`;
+        }
+        
+        // Reset selection
+        document.querySelectorAll('.char-btn').forEach(btn => btn.classList.remove('selected'));
+        if (this.elements.manualCharInput) {
+            this.elements.manualCharInput.value = '';
+        }
+        if (this.elements.submitCorrectionBtn) {
+            this.elements.submitCorrectionBtn.disabled = true;
+        }
+        
+        // Show modal
+        if (this.elements.correctionModal) {
+            this.elements.correctionModal.classList.remove('hidden');
+        }
+    }
+    
+    /**
+     * Hide correction modal
+     */
+    hideCorrectionModal() {
+        if (this.elements.correctionModal) {
+            this.elements.correctionModal.classList.add('hidden');
+        }
+        this.currentPredictionData = null;
+        this.selectedCorrection = null;
+    }
+    
+    /**
+     * Select a character from the grid
+     */
+    selectCharacter(char) {
+        this.selectedCorrection = char;
+        
+        // Update UI
+        document.querySelectorAll('.char-btn').forEach(btn => {
+            if (btn.textContent === char) {
+                btn.classList.add('selected');
+            } else {
+                btn.classList.remove('selected');
+            }
+        });
+        
+        if (this.elements.manualCharInput) {
+            this.elements.manualCharInput.value = char;
+        }
+        if (this.elements.submitCorrectionBtn) {
+            this.elements.submitCorrectionBtn.disabled = false;
+        }
+    }
+    
+    /**
+     * Handle manual character input
+     */
+    handleManualInput(event) {
+        const value = event.target.value.toUpperCase();
+        
+        if (value && /^[a-zA-Z0-9]$/.test(value)) {
+            this.selectCharacter(value);
+        } else {
+            this.selectedCorrection = null;
+            document.querySelectorAll('.char-btn').forEach(btn => btn.classList.remove('selected'));
+            if (this.elements.submitCorrectionBtn) {
+                this.elements.submitCorrectionBtn.disabled = true;
+            }
+        }
+    }
+    
+    /**
+     * Confirm prediction was correct
+     */
+    async confirmCorrect() {
+        if (!this.currentPredictionData) return;
+        
+        await this.sendFeedback(
+            this.currentPredictionData.prediction,
+            'confirmed'
+        );
+        
+        this.showToast('Thanks for confirming! ✓', 'success');
+        this.hideCorrectionModal();
+    }
+    
+    /**
+     * Submit correction
+     */
+    async submitCorrection() {
+        if (!this.selectedCorrection || !this.currentPredictionData) return;
+        
+        await this.sendFeedback(
+            this.selectedCorrection,
+            'corrected'
+        );
+        
+        this.showToast(`Correction submitted: ${this.selectedCorrection} ✓`, 'success');
+        this.hideCorrectionModal();
+    }
+    
+    /**
+     * Send feedback to backend
+     */
+    async sendFeedback(actualChar, correctionType) {
+        try {
+            console.log('Sending feedback:', {
+                predicted: this.currentPredictionData.prediction,
+                actual: actualChar,
+                type: correctionType
+            });
+            
+            const response = await fetch(Config.API_BASE_URL + '/training/feedback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    stroke_features: this.currentPredictionData.features,
+                    predicted_char: this.currentPredictionData.prediction,
+                    predicted_confidence: this.currentPredictionData.confidence,
+                    alternatives: this.currentPredictionData.alternatives,
+                    actual_char: actualChar,
+                    correction_type: correctionType,
+                    model_version: this.currentPredictionData.model_version || '1.0.0',
+                    inference_time_ms: this.currentPredictionData.inference_time || 0
+                })
+            });
+            
+            if (response.ok) {
+                // Update contribution count
+                this.contributionTotal++;
+                localStorage.setItem('airtype_contribution_count', this.contributionTotal.toString());
+                if (this.elements.contributionCount) {
+                    this.elements.contributionCount.textContent = this.contributionTotal;
+                }
+                
+                console.log('Feedback sent successfully');
+                
+                // Refresh training stats
+                this.loadTrainingStats();
+            } else {
+                console.error('Failed to send feedback:', await response.text());
+            }
+        } catch (error) {
+            console.error('Error sending feedback:', error);
+        }
+    }
+    
+    /**
+     * Load training statistics
+     */
+    async loadTrainingStats() {
+        try {
+            const response = await fetch(Config.API_BASE_URL + '/training/stats');
+            if (response.ok) {
+                this.trainingStats = await response.json();
+                this.updateTrainingPanel();
+            }
+        } catch (error) {
+            console.error('Failed to load training stats:', error);
+        }
+    }
+    
+    /**
+     * Update training panel UI
+     */
+    updateTrainingPanel() {
+        if (!this.trainingStats) return;
+        
+        if (this.elements.totalSamples) {
+            this.elements.totalSamples.textContent = this.trainingStats.total_samples || 0;
+        }
+        
+        if (this.elements.overallAccuracy) {
+            const acc = this.trainingStats.overall_accuracy;
+            this.elements.overallAccuracy.textContent = acc ? `${acc}%` : '-';
+        }
+        
+        // Enable train button if enough samples
+        if (this.elements.trainModelBtn) {
+            const samples = this.trainingStats.total_samples || 0;
+            this.elements.trainModelBtn.disabled = samples < 50;
+            this.elements.trainModelBtn.textContent = samples < 50 
+                ? `Train Model (${samples}/50 samples)`
+                : `Train Model (${samples} samples)`;
+        }
+    }
+    
+    /**
+     * Load practice suggestions from active learning
+     */
+    async loadPracticeSuggestions() {
+        try {
+            this.elements.getSuggestionsBtn.disabled = true;
+            this.elements.getSuggestionsBtn.textContent = 'Loading...';
+            
+            const response = await fetch(Config.API_BASE_URL + '/training/suggestions');
+            if (response.ok) {
+                const data = await response.json();
+                this.displayPracticeSuggestions(data);
+            } else {
+                this.showToast('Failed to load suggestions', 'error');
+            }
+        } catch (error) {
+            console.error('Failed to load suggestions:', error);
+            this.showToast('Failed to load suggestions', 'error');
+        } finally {
+            this.elements.getSuggestionsBtn.disabled = false;
+            this.elements.getSuggestionsBtn.textContent = 'Get Practice Suggestions';
+        }
+    }
+    
+    /**
+     * Display practice suggestions
+     */
+    displayPracticeSuggestions(data) {
+        if (!this.elements.practiceSuggestion || !this.elements.suggestedChars) return;
+        
+        this.elements.practiceSuggestion.classList.remove('hidden');
+        this.elements.suggestedChars.innerHTML = '';
+        
+        // Display top suggested characters
+        const suggestions = data.suggestions || [];
+        suggestions.slice(0, 10).forEach(suggestion => {
+            const charEl = document.createElement('div');
+            charEl.className = 'suggested-char';
+            charEl.innerHTML = `
+                <span class="char">${suggestion.char}</span>
+                <span class="priority">★${Math.round(suggestion.score)}</span>
+            `;
+            charEl.title = suggestion.reasons.join('\n');
+            this.elements.suggestedChars.appendChild(charEl);
+        });
+        
+        // Show practice session
+        if (data.practice_session) {
+            const sessionEl = document.createElement('div');
+            sessionEl.className = 'practice-session';
+            sessionEl.innerHTML = `
+                <p style="margin-top: 0.5rem; font-size: 0.75rem; color: var(--color-text-muted);">
+                    Practice session: ${data.practice_session.slice(0, 15).join(' ')}...
+                </p>
+            `;
+            this.elements.suggestedChars.appendChild(sessionEl);
+        }
+    }
+    
+    /**
+     * Train the model with collected data
+     */
+    async trainModel() {
+        if (this.isTraining) return;
+        
+        try {
+            this.isTraining = true;
+            this.elements.trainModelBtn.disabled = true;
+            this.elements.trainingStatus.classList.remove('hidden', 'error', 'success');
+            this.elements.trainingStatusText.textContent = 'Training model... This may take a minute.';
+            
+            const response = await fetch(Config.API_BASE_URL + '/training/train', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    min_samples: 50,
+                    epochs: 10,
+                    augment: true,
+                    augmentation_factor: 5
+                })
+            });
+            
+            const result = await response.json();
+            
+            if (response.ok) {
+                this.elements.trainingStatus.classList.add('success');
+                const accuracy = result.results?.final_val_accuracy || result.results?.final_train_accuracy || 0;
+                this.elements.trainingStatusText.textContent = 
+                    `✓ Training complete! Accuracy: ${accuracy}% (${result.results?.training_time_seconds}s)`;
+                this.showToast('Model trained successfully!', 'success');
+                
+                // Refresh stats
+                this.loadTrainingStats();
+            } else {
+                this.elements.trainingStatus.classList.add('error');
+                this.elements.trainingStatusText.textContent = `✗ ${result.error}`;
+                this.showToast(result.error, 'error');
+            }
+        } catch (error) {
+            console.error('Training failed:', error);
+            this.elements.trainingStatus.classList.add('error');
+            this.elements.trainingStatusText.textContent = `✗ Training failed: ${error.message}`;
+            this.showToast('Training failed', 'error');
+        } finally {
+            this.isTraining = false;
+            this.elements.trainModelBtn.disabled = (this.trainingStats?.total_samples || 0) < 50;
+        }
     }
     
     /**

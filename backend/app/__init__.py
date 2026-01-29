@@ -106,11 +106,13 @@ def create_app(config_name: Optional[str] = None) -> Flask:
     from app.api.predictions import predictions_bp
     from app.api.users import users_bp
     from app.api.health import health_bp
+    from app.api.training import training_bp
     
     app.register_blueprint(strokes_bp, url_prefix="/api/strokes")
     app.register_blueprint(predictions_bp, url_prefix="/api/predictions")
     app.register_blueprint(users_bp, url_prefix="/api/users")
     app.register_blueprint(health_bp, url_prefix="")
+    app.register_blueprint(training_bp, url_prefix="/api/training")
     
     # Prometheus metrics endpoint disabled for local development
     # (causes issues with SocketIO and threading mode)

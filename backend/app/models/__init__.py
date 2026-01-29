@@ -548,6 +548,269 @@ class StrokeFeaturesCache(db.Model):
         return f"<StrokeFeaturesCache session={self.session_id}>"
 
 
+class TrainingSample(db.Model):
+    """
+    Training sample model for storing user feedback and corrections.
+    
+    Used for continuous learning and model fine-tuning. Each sample represents
+    a stroke with its features, the model's prediction, and the user's correction.
+    
+    Attributes:
+        id: Unique identifier (UUID)
+        user_id: Reference to user who provided correction
+        session_id: Training session grouping identifier
+        stroke_features: 2D array of normalized features
+        stroke_metadata: Optional raw stroke data and metadata
+        predicted_char: Character predicted by the model
+        predicted_confidence: Confidence score of prediction
+        alternatives: Top-k alternative predictions with scores
+        actual_char: Ground truth character (user correction)
+        correction_type: Type of feedback (manual, confirmed, corrected)
+        model_version: Version of model that made prediction
+        inference_time_ms: Time taken for inference
+        created_at: Sample creation timestamp
+    """
+    
+    __tablename__ = "training_samples"
+    
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(),
+        nullable=True,
+        index=True,
+    )
+    
+    # Feature data
+    stroke_features: Mapped[Dict[str, Any]] = mapped_column(
+        JSON(),
+        nullable=False,
+    )
+    stroke_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSON(),
+        nullable=True,
+    )
+    
+    # Prediction data
+    predicted_char: Mapped[str] = mapped_column(
+        String(1),
+        nullable=False,
+        index=True,
+    )
+    predicted_confidence: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        index=True,
+    )
+    alternatives: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSON(),
+        nullable=True,
+    )
+    
+    # Ground truth
+    actual_char: Mapped[str] = mapped_column(
+        String(1),
+        nullable=False,
+        index=True,
+    )
+    correction_type: Mapped[str] = mapped_column(
+        String(20),
+        default="manual",
+        nullable=False,
+    )
+    
+    # Metadata
+    model_version: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    inference_time_ms: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+    
+    # Relationships
+    user: Mapped[Optional["User"]] = relationship(
+        "User",
+        backref="training_samples",
+    )
+    
+    # Constraints
+    __table_args__ = (
+        CheckConstraint(
+            "predicted_confidence >= 0 AND predicted_confidence <= 1",
+            name="valid_confidence",
+        ),
+        CheckConstraint(
+            "predicted_char ~ '^[a-zA-Z0-9]$' AND actual_char ~ '^[a-zA-Z0-9]$'",
+            name="valid_chars",
+        ),
+        CheckConstraint(
+            "correction_type IN ('manual', 'confirmed', 'corrected')",
+            name="valid_correction_type",
+        ),
+        Index("idx_training_misclassified", "predicted_char", "actual_char",
+              postgresql_where="predicted_char != actual_char"),
+    )
+    
+    @validates("predicted_confidence")
+    def validate_confidence(self, key: str, confidence: float) -> float:
+        """Validate confidence is between 0 and 1."""
+        if not 0 <= confidence <= 1:
+            raise ValueError("Confidence must be between 0 and 1")
+        return confidence
+    
+    @validates("predicted_char", "actual_char")
+    def validate_char(self, key: str, char: str) -> str:
+        """Validate character is alphanumeric."""
+        if not char or len(char) != 1:
+            raise ValueError(f"{key} must be a single character")
+        if not char.isalnum():
+            raise ValueError(f"{key} must be alphanumeric")
+        return char
+    
+    @validates("correction_type")
+    def validate_correction_type(self, key: str, correction_type: str) -> str:
+        """Validate correction type."""
+        valid_types = {"manual", "confirmed", "corrected"}
+        if correction_type not in valid_types:
+            raise ValueError(f"correction_type must be one of {valid_types}")
+        return correction_type
+    
+    @property
+    def is_correct(self) -> bool:
+        """Check if the prediction was correct."""
+        return self.predicted_char == self.actual_char
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert training sample to dictionary representation."""
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id) if self.user_id else None,
+            "session_id": str(self.session_id) if self.session_id else None,
+            "predicted_char": self.predicted_char,
+            "predicted_confidence": self.predicted_confidence,
+            "alternatives": self.alternatives,
+            "actual_char": self.actual_char,
+            "correction_type": self.correction_type,
+            "is_correct": self.is_correct,
+            "model_version": self.model_version,
+            "inference_time_ms": self.inference_time_ms,
+            "created_at": self.created_at.isoformat(),
+        }
+    
+    def __repr__(self) -> str:
+        correct = "✓" if self.is_correct else "✗"
+        return f"<TrainingSample {correct} pred='{self.predicted_char}' actual='{self.actual_char}' conf={self.predicted_confidence:.2f}>"
+
+
+class TrainingSession(db.Model):
+    """
+    Training session model for tracking batch training operations.
+    
+    Groups related training samples together for model fine-tuning.
+    
+    Attributes:
+        id: Unique identifier (UUID)
+        user_id: Reference to user who owns session
+        model_version: Version of model being trained
+        samples_count: Number of samples in session
+        started_at: Session start timestamp
+        completed_at: Session completion timestamp
+        status: Session status (active, completed, abandoned)
+    """
+    
+    __tablename__ = "training_sessions"
+    
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    model_version: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    samples_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    completed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="active",
+        nullable=False,
+        index=True,
+    )
+    
+    # Relationships
+    user: Mapped[Optional["User"]] = relationship(
+        "User",
+        backref="training_sessions",
+    )
+    
+    # Constraints
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'completed', 'abandoned')",
+            name="valid_status",
+        ),
+    )
+    
+    @validates("status")
+    def validate_status(self, key: str, status: str) -> str:
+        """Validate session status."""
+        valid_statuses = {"active", "completed", "abandoned"}
+        if status not in valid_statuses:
+            raise ValueError(f"status must be one of {valid_statuses}")
+        return status
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert training session to dictionary representation."""
+        return {
+            "id": str(self.id),
+            "user_id": str(self.user_id) if self.user_id else None,
+            "model_version": self.model_version,
+            "samples_count": self.samples_count,
+            "started_at": self.started_at.isoformat(),
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "status": self.status,
+        }
+    
+    def __repr__(self) -> str:
+        return f"<TrainingSession id={self.id} status={self.status} samples={self.samples_count}>"
+
+
 # Event listeners for automatic timestamp updates
 @event.listens_for(User, "before_update")
 def update_user_timestamp(mapper, connection, target):
