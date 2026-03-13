@@ -5,15 +5,13 @@
 [![PyTorch](https://img.shields.io/badge/pytorch-2.0+-orange.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A production-ready vision-based handwriting recognition system that allows users to write characters in the air using hand gestures detected via webcam. The system uses a bidirectional LSTM with attention mechanism to recognize handwritten characters with <100ms inference time and 86%+ accuracy.
-
 ## Features
 
 - **Real-time Hand Tracking**: Uses MediaPipe Hands for accurate finger tracking
 - **Air Writing Recognition**: Draw characters in the air with your index finger
 - **Deep Learning Model**: Bidirectional LSTM with multi-head attention
-- **Fast Inference**: <100ms prediction latency
-- **High Accuracy**: 86%+ recognition accuracy on alphanumeric characters
+- **Fast Inference**: GOAL: <100ms prediction latency
+- **High Accuracy**: GOAL: 86%+ recognition accuracy on alphanumeric characters
 - **62 Character Classes**: a-z, A-Z, 0-9
 - **WebSocket Support**: Real-time predictions via Socket.IO
 - **User Authentication**: JWT-based authentication
@@ -21,25 +19,12 @@ A production-ready vision-based handwriting recognition system that allows users
 - **Docker Support**: Easy deployment with Docker Compose
 
 ## Architecture
-
-```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   Frontend      │────▶│   Backend API    │────▶│   PostgreSQL    │
-│   (Vanilla JS)  │     │   (Flask)        │     │   Database      │
-└─────────────────┘     └──────────────────┘     └─────────────────┘
-        │                       │                        
-        │                       ▼                        
-        │               ┌──────────────────┐            
-        │               │   ML Model       │            
-        │               │   (PyTorch LSTM) │            
-        │               └──────────────────┘            
-        │                       │                       
-        ▼                       ▼                       
-┌─────────────────┐     ┌──────────────────┐            
-│   MediaPipe     │     │   Redis Cache    │            
-│   Hand Tracking │     │                  │            
-└─────────────────┘     └──────────────────┘            
-```
+- Vanilla JS frontend
+- Flask backend
+- PostgreSQL db
+- PyTorch LSTM
+- Redis Cache
+- MediaPipe Hand Tracking
 
 ## Prerequisites
 
@@ -121,54 +106,6 @@ A production-ready vision-based handwriting recognition system that allows users
    - Frontend: http://localhost:8080
    - API: http://localhost:5000
 
-## Project Structure
-
-```
-airtype/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py          # Flask app factory
-│   │   ├── config.py            # Configuration classes
-│   │   ├── api/                  # API blueprints
-│   │   │   ├── health.py        # Health check endpoints
-│   │   │   ├── strokes.py       # Stroke session endpoints
-│   │   │   ├── predictions.py   # Prediction endpoints
-│   │   │   └── users.py         # Authentication endpoints
-│   │   ├── ml/                   # Machine learning module
-│   │   │   ├── model.py         # LSTM model architecture
-│   │   │   ├── dataset.py       # Dataset and data augmentation
-│   │   │   └── train.py         # Training script
-│   │   ├── models/               # SQLAlchemy models
-│   │   ├── services/             # Business logic services
-│   │   │   ├── video_processor.py
-│   │   │   ├── feature_extractor.py
-│   │   │   ├── predictor.py
-│   │   │   └── deduplicator.py
-│   │   └── utils/                # Utility modules
-│   ├── tests/                    # Test suite
-│   ├── requirements.txt
-│   ├── Dockerfile
-│   └── wsgi.py
-├── frontend/
-│   ├── index.html
-│   ├── css/
-│   │   └── styles.css
-│   ├── js/
-│   │   ├── config.js
-│   │   ├── api-client.js
-│   │   ├── video-stream.js
-│   │   ├── canvas-renderer.js
-│   │   ├── websocket-client.js
-│   │   └── app.js
-│   ├── Dockerfile
-│   └── nginx.conf
-├── monitoring/
-│   ├── prometheus.yml
-│   └── grafana/
-├── docker-compose.yml
-└── README.md
-```
-
 ## API Endpoints
 
 ### Authentication
@@ -213,19 +150,14 @@ The handwriting recognition model uses a bidirectional LSTM with multi-head atte
 ```
 Input (batch, seq_len, 7)
     │
-    ▼
 Bidirectional LSTM (3 layers, 256 hidden)
     │
-    ▼
 Multi-Head Attention (8 heads)
     │
-    ▼
 Fully Connected (512)
     │
-    ▼
 Dropout (0.3)
     │
-    ▼
 Output (62 classes)
 ```
 
@@ -296,14 +228,6 @@ The backend exposes metrics at `/api/v1/metrics`:
 
 Access Grafana at http://localhost:3000 (default credentials: admin/admin)
 
-## Performance Benchmarks
-
-| Metric | Target | Achieved |
-|--------|--------|----------|
-| Inference Time | <100ms | 45ms avg |
-| Accuracy | 86% | 88.5% |
-| Throughput | 100 req/s | 150 req/s |
-
 ## Contributing
 
 1. Fork the repository
@@ -315,10 +239,3 @@ Access Grafana at http://localhost:3000 (default credentials: admin/admin)
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- [MediaPipe](https://mediapipe.dev/) for hand tracking
-- [PyTorch](https://pytorch.org/) for deep learning framework
-- [Flask](https://flask.palletsprojects.com/) for web framework
-# AirType
